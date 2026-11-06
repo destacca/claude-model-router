@@ -1,6 +1,6 @@
 {
   "name": "model-router",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Roteia tarefas para subagentes com modelo e esforço adequados à dificuldade (scout/Haiku, implementer/Sonnet, architect/Opus).",
   "author": {
     "name": "Leon Lourenço"

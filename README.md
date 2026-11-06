@@ -25,42 +25,68 @@ Depois de instalado, a skill é carregada automaticamente em tarefas de código.
 
 - Funciona somente no Claude Code (CLI, desktop, web). Não roda no claude.ai chat nem na API pura.
 - O Haiku pode omitir trechos relevantes. A skill mitiga com busca ampla e revalidação, mas não elimina o risco.
-- Para tarefas pequenas, delegar custa mais que fazer direto; a skill instrui a não delegar nesses casos.
+- Delegar 1–2 buscas não compensa; a partir de ~4 chamadas sim. O maior ganho isolado é usar Sonnet como modelo principal (ver Testes e resultados).
 - Não defina `CLAUDE_CODE_SUBAGENT_MODEL` globalmente, ou ele sobrescreve o modelo de cada agente.
 
 ## Testes e resultados
 
-Data: 06/11/2026. Alvo: repositório público `expressjs/express` (commit 43fca52). Tarefas de exploração com gabarito calculado por `grep`:
+Data: 06/11/2026. Alvo: repositório público `expressjs/express` (commit 43fca52). Gabarito calculado por `grep`. Subagentes `general-purpose` com o modelo trocado. "Tokens" é o valor reportado por subagente (tamanho do contexto atingido, não o total faturado, ver nota abaixo). Scripts em `benchmarks/`.
 
-- **T1:** listar toda linha de `lib/*.js` com a palavra `locals` (gabarito: 10 linhas).
-- **T2:** listar os arquivos de `test/` que mencionam `sendFile` (gabarito: 2 arquivos).
+### Rodada 1: modelos diferentes, mesma tarefa de busca
 
-Mesmo prompt, subagente `general-purpose` com o modelo trocado. Tokens = total reportado por subagente.
+| Tarefa | Modelo | Tokens | Resultado |
+|---|---|---|---|
+| T1: linhas de `lib/*.js` com `locals` (10) | Haiku (4 execuções) | 64,3k a 64,9k | 3 corretas, 1 com 9/10 (perdeu um comentário) |
+| T1 | Sonnet / Opus | 63,7k / 63,8k | 10/10 |
+| T2: arquivos de `test/` com `sendFile` (2) | Haiku / Sonnet / Opus | 64,2k / 63,6k / 63,7k | 2/2 em todos |
 
-| Tarefa | Modelo | Tokens | Tempo | Resultado |
+### Rodada 2: hipóteses sobre onde o custo está
+
+| Hipótese | Teste | Resultado |
+|---|---|---|
+| H1: existe um piso fixo por subagente | Haiku sem ferramentas ("responda ok") | **62,6k tokens com 0 chamadas.** Confirmada |
+| H2: o custo cresce com o nº de chamadas | Buscar 8 definições em `response.js`, 4 execuções | 64,4k a 64,9k com 2–3 chamadas; ~+1k por chamada. **Refutada**: o piso domina |
+| H3: pedir "uma única chamada de Grep" reduz o custo | Mesma tarefa com essa instrução | Os agentes ainda fizeram 2–3 chamadas; sem efeito. **Refutada** |
+| H4: Explore tem menos overhead que general-purpose | 2 execuções com Explore (Haiku) | Corretas (2/2), mas o tamanho não foi reportado. **Não medida** |
+
+Todas as execuções de H2/H3 acertaram 8/8.
+
+Nota: com 3 chamadas de API por subagente, o valor reportado (~64k) é menor do que a soma das leituras de contexto, então ele representa o tamanho do contexto e não o total faturado. O custo real é maior que o número sugere e depende de cache.
+
+### Modelo de custo (preços oficiais, `benchmarks/costmodel.py`)
+
+Preços por MTok: Opus 5.5 entrada 4 / cache escrita 5 / cache leitura 0,20 / saída 20; Sonnet 5.5: 2 / 2,5 / 0,10 / 10; Haiku 5.5: 0,10 / 0,125 / 0,01 / 0,50. Premissas: piso de 62,6k tokens por subagente, +1k por chamada, 20 turnos restantes na sessão.
+
+Economia de delegar a exploração ao Haiku, comparada a fazer direto no principal (cache do subagente frio):
+
+| Principal | Contexto | 1 busca | 4 chamadas | 10 chamadas |
 |---|---|---|---|---|
-| T1 | Haiku (4 execuções) | 64.3k a 64.9k | 4,4 a 7,8 s | 3 corretas, 1 com 9/10 (perdeu `application.js:172`, um comentário) |
-| T1 | Sonnet | 63,7k | 5,1 s | 10/10 |
-| T1 | Opus | 63,8k | 4,8 s | 10/10 |
-| T2 | Haiku | 64,2k | 4,6 s | 2/2 |
-| T2 | Sonnet | 63,6k | 6,0 s | 2/2 |
-| T2 | Opus | 63,7k | 6,0 s | 2/2 |
+| Opus | 20k | -9% | 40% | 77% |
+| Opus | 100k | -2% | 21% | 53% |
+| Sonnet | 20k | -19% | 34% | 73% |
+| Sonnet | 100k | -4% | 19% | 52% |
 
-### O que os testes mostram
+Tarefa de implementação de 10 chamadas (saída de 5k tokens):
 
-1. **Contagem de tokens não muda com o modelo.** Todas as execuções ficaram em ~64k tokens, dominadas pelo custo fixo de iniciar um subagente (system prompt e definições de ferramentas). A economia vem do preço por token do modelo menor, que **não foi medido aqui**.
-2. **Delegar tarefa trivial sai mais caro.** Um único `grep` direto resolve T1 e T2 com uma fração desses ~64k tokens. Por isso a regra 1 da skill (não delegar o que é barato) vale mais que qualquer troca de modelo.
-3. **O Haiku errou 1 de 5 execuções em T1/T2**, omitindo uma ocorrência dentro de comentário, sem avisar. Confirma o risco de recall: o orquestrador não percebe o que não foi retornado.
-4. **Qualidade nas demais execuções foi igual entre modelos** nessas tarefas de busca literal.
+| Contexto | Opus direto | Opus + subagente Sonnet | Tudo no Sonnet |
+|---|---|---|---|
+| 20k | US$0,58 | US$0,40 | US$0,29 |
+| 100k | US$1,06 | US$0,74 | US$0,53 |
+
+### Conclusões
+
+1. **Correção da rodada anterior:** a afirmação de que "delegar tarefa trivial sai mais caro" estava incompleta. Em tokens, sim; em dólares, uma única busca fica praticamente empatada (de -19% a +0%), porque os tokens do Haiku são muito mais baratos. O que perde dinheiro é delegar 1–2 buscas, não um custo enorme.
+2. **Delegar exploração ao Haiku compensa a partir de ~4 chamadas** e mais quanto maior o contexto principal.
+3. **O maior ganho isolado não é subagente:** rodar o principal em Sonnet em vez de Opus cortou cerca de 50% da tarefa de implementação no modelo, sem nenhum overhead. Orquestrar com Opus e delegar ao Sonnet economiza menos que simplesmente usar Sonnet como principal.
+4. **Cada spawn de Sonnet/Opus a frio custa ~US$0,16/US$0,31 só de piso.** Agrupe o trabalho numa única delegação.
+5. **O Haiku perdeu uma ocorrência em 1 de 5 execuções de busca**, sem avisar.
 
 ### Limites desta medição
 
-- Amostra pequena (10 execuções, 2 tarefas, 1 repositório). Não é estatisticamente conclusivo.
-- Subagente `general-purpose` com todas as ferramentas. O `scout` do plugin (só `Read`, `Grep`, `Glob`) deve ter menos overhead, mas **não foi medido**.
-- **Não foi testado o ciclo completo** (orquestrador escolhendo sozinho quando delegar) nem tarefas de implementação com Sonnet/Opus. Não consegui rodar `claude -p` no ambiente de teste (sem autenticação).
-- Custo em dólares não foi calculado.
-
-Se você medir com o plugin em uso real, contribuições com resultados são bem-vindas.
+- Os dólares são **estimativas de um modelo**, não faturamento medido. Dependem de cache, que não consegui observar.
+- Amostra pequena, 1 repositório, tarefas de busca literal. A qualidade em implementação e raciocínio não foi comparada entre modelos.
+- O piso de 62,6k foi medido num ambiente com muitas ferramentas e servidores MCP. Num setup enxuto será menor. Restringir `tools` e `omitClaudeMd` em um subagente deve reduzir o piso, mas não foi testado.
+- Não foi testado o ciclo completo (orquestrador decidindo sozinho quando delegar). Não consegui rodar `claude -p` no ambiente de teste (sem autenticação).
 
 ## Licença
 
