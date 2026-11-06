@@ -19,9 +19,9 @@ Se os subagentes aparecerem com prefixo de plugin (`model-router:scout`), use o 
 
 ## Regras
 
-1. **Não delegue o que é barato de fazer direto.** Se couber em 1–2 leituras ou uma edição pequena, faça você mesmo. Cada subagente novo carrega system prompt, CLAUDE.md e contexto próprios.
+1. **Não delegue o que é barato de fazer direto.** Se couber em 1–2 leituras ou uma edição pequena, faça você mesmo. Cada subagente novo carrega system prompt, CLAUDE.md e contexto próprios. Medido: um subagente consome ~64k tokens mesmo numa busca trivial; um `grep` direto custa uma fração disso.
 2. **Toda delegação define o formato de retorno.** Ex.: "caminho:linha + 3 linhas de contexto, máximo 30 linhas". Sem isso o ganho de tokens some.
-3. **Busca prioriza recall.** Peça ao scout todos os candidatos plausíveis e filtre você. Um trecho omitido não será recuperado, porque você não sabe que existia.
+3. **Busca prioriza recall.** Peça ao scout todos os candidatos plausíveis e filtre você. Um trecho omitido não será recuperado, porque você não sabe que existia. Em teste, o Haiku omitiu uma ocorrência em comentário (1 de 4 execuções); peça explicitamente para incluir comentários e strings.
 4. **Valide resultado vazio ou suspeito.** Se o scout voltar sem nada, contraditório ou incompleto, refaça UMA vez com outra estratégia (outros termos, outro diretório) antes de concluir. Para afirmações críticas, leia você mesmo o arquivo apontado.
 5. **Escale, não rebaixe.** Se um subagente falhar ou pedir escalada, suba um nível. Nunca passe uma tarefa já difícil para um modelo menor no meio do caminho.
 6. **Só `implementer` e você escrevem.** O scout é somente leitura; o architect planeja e decide, e a execução mecânica volta para o implementer.
