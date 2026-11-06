@@ -1,0 +1,14 @@
+{
+  "name": "model-router",
+  "description": "Roteamento de modelos e esforço por dificuldade de tarefa no Claude Code",
+  "owner": {
+    "name": "Leon Lourenço"
+  },
+  "plugins": [
+    {
+      "name": "model-router",
+      "source": "./plugins/model-router",
+      "description": "Orquestrador delega busca ao Haiku, implementação ao Sonnet e decisões difíceis ao Opus para economizar tokens"
+    }
+  ]
+}
